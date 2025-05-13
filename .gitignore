@@ -1,0 +1,40 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Development environment
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build and output
+/dist/
+/tmp/
+
+# Dependency directories
+/vendor/
+
+# Development configuration
+/configs/development.yaml
+/configs/production.yaml
+
+# Logs
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Test files
+*.test
+*.tmp
+/coverage.out
+
+migrate
