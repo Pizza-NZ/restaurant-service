@@ -110,7 +110,7 @@ func (s *MenuService) CreateItem(ctx context.Context, req models.MenuItemRequest
 // UpdateItem updates a menu item
 func (s *MenuService) UpdateItem(ctx context.Context, id uuid.UUID, req models.MenuItemRequest) (*models.MenuItem, error) {
 	// Verify the item exists
-	existingItem, err := s.repos.Menu.GetItemByID(ctx, id)
+	_, err := s.repos.Menu.GetItemByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("menu item not found: %w", err)
 	}
@@ -122,15 +122,10 @@ func (s *MenuService) UpdateItem(ctx context.Context, id uuid.UUID, req models.M
 	}
 
 	// Start a transaction
-	tx, err := s.repos.Menu.DB.BeginTxx(ctx, nil)
+	tx, err := s.repos.Menu.BeginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
 	// Update the menu item
 	_, err = tx.Exec(`
@@ -209,15 +204,10 @@ func (s *MenuService) UpdateItem(ctx context.Context, id uuid.UUID, req models.M
 // DeleteItem deletes a menu item
 func (s *MenuService) DeleteItem(ctx context.Context, id uuid.UUID) error {
 	// Start a transaction
-	tx, err := s.repos.Menu.DB.BeginTxx(ctx, nil)
+	tx, err := s.repos.Menu.BeginTransaction(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
 	// Delete routing rules for this item
 	_, err = tx.Exec("DELETE FROM routing_rules WHERE menu_item_id = $1", id)
@@ -248,13 +238,7 @@ func (s *MenuService) DeleteItem(ctx context.Context, id uuid.UUID) error {
 
 // GetModifiers retrieves all modifiers
 func (s *MenuService) GetModifiers(ctx context.Context) ([]models.Modifier, error) {
-	query := `SELECT id, name, is_multiple, created_at, updated_at FROM modifiers ORDER BY name ASC`
-
 	var modifiers []models.Modifier
-	err := s.repos.Menu.DB.SelectContext(ctx, &modifiers, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get modifiers: %w", err)
-	}
 
 	// Get options for each modifier
 	for i := range modifiers {
@@ -270,13 +254,7 @@ func (s *MenuService) GetModifiers(ctx context.Context) ([]models.Modifier, erro
 
 // GetModifier retrieves a modifier by ID
 func (s *MenuService) GetModifier(ctx context.Context, id uuid.UUID) (*models.Modifier, error) {
-	query := `SELECT id, name, is_multiple, created_at, updated_at FROM modifiers WHERE id = $1`
-
 	var modifier models.Modifier
-	err := s.repos.Menu.DB.GetContext(ctx, &modifier, query, id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get modifier: %w", err)
-	}
 
 	// Get options
 	options, err := s.repos.Menu.GetModifierOptions(ctx, modifier.ID)
@@ -289,17 +267,12 @@ func (s *MenuService) GetModifier(ctx context.Context, id uuid.UUID) (*models.Mo
 }
 
 // CreateModifier creates a new modifier
-func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
+func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
 	// Start a transaction
-	tx, err := s.repos.Menu.DB.BeginTxx(ctx, nil)
+	tx, err := s.repos.Menu.BeginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
 	// Create the modifier
 	var modifierID uuid.UUID
@@ -335,9 +308,9 @@ func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultipl
 }
 
 // UpdateModifier updates a modifier
-func (s *MenuService) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
+func (s *MenuService) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
 	// Start a transaction
-	tx, err := s.repos.Menu.DB.BeginTxx(ctx, nil)
+	tx, err := s.repos.Menu.BeginTransaction(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -402,15 +375,10 @@ func (s *MenuService) DeleteModifier(ctx context.Context, id uuid.UUID) error {
 	}
 
 	// Start a transaction
-	tx, err := s.repos.Menu.DB.BeginTxx(ctx, nil)
+	tx, err := s.repos.Menu.BeginTransaction(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
 	// Delete options
 	_, err = tx.Exec("DELETE FROM modifier_options WHERE modifier_id = $1", id)
