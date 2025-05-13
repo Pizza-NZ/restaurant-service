@@ -4,7 +4,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/pizza-nz/restaurant-service/internal/db/repository"
@@ -13,11 +12,11 @@ import (
 
 // MenuService handles menu-related business logic
 type MenuService struct {
-	repos *repository.Factory
+	repos *repository.Repositories
 }
 
 // NewMenuService creates a new menu service
-func NewMenuService(repos *repository.Factory) *MenuService {
+func NewMenuService(repos *repository.Repositories) *MenuService {
 	return &MenuService{
 		repos: repos,
 	}
@@ -121,282 +120,36 @@ func (s *MenuService) UpdateItem(ctx context.Context, id uuid.UUID, req models.M
 		return nil, fmt.Errorf("invalid category ID: %w", err)
 	}
 
-	// Start a transaction
-	tx, err := s.repos.Menu.BeginTransaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Update the menu item
-	_, err = tx.Exec(`
-		UPDATE menu_items
-		SET category_id = $1, name = $2, price = $3, available = $4, description = $5, image_path = $6, updated_at = $7
-		WHERE id = $8
-	`,
-		req.CategoryID,
-		req.Name,
-		req.Price,
-		req.Available,
-		req.Description,
-		req.ImagePath,
-		time.Now(),
-		id,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update menu item: %w", err)
-	}
-
-	// Update modifiers (remove existing ones and add new ones)
-	_, err = tx.Exec("DELETE FROM menu_item_modifiers WHERE menu_item_id = $1", id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove existing modifiers: %w", err)
-	}
-
-	for _, modID := range req.ModifierIDs {
-		_, err = tx.Exec(
-			"INSERT INTO menu_item_modifiers (menu_item_id, modifier_id, required) VALUES ($1, $2, $3)",
-			id, modID, false,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to add modifier: %w", err)
-		}
-	}
-
-	// Update routing rule if station ID changed
-	stationID, err := uuid.Parse(req.StationID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid station ID: %w", err)
-	}
-
-	// Check if there's an existing routing rule
-	var ruleID uuid.UUID
-	err = tx.Get(&ruleID, "SELECT id FROM routing_rules WHERE menu_item_id = $1 LIMIT 1", id)
-	if err == nil {
-		// Update existing rule
-		_, err = tx.Exec(
-			"UPDATE routing_rules SET station_id = $1, updated_at = $2 WHERE id = $3",
-			stationID, time.Now(), ruleID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update routing rule: %w", err)
-		}
-	} else {
-		// Create new rule
-		_, err = tx.Exec(
-			"INSERT INTO routing_rules (menu_item_id, station_id, priority) VALUES ($1, $2, $3)",
-			id, stationID, 1,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create routing rule: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	// Get the updated item
-	return s.repos.Menu.GetItemByID(ctx, id)
+	return s.repos.Menu.UpdateItem(ctx, nil, id, req)
 }
 
 // DeleteItem deletes a menu item
 func (s *MenuService) DeleteItem(ctx context.Context, id uuid.UUID) error {
-	// Start a transaction
-	tx, err := s.repos.Menu.BeginTransaction(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Delete routing rules for this item
-	_, err = tx.Exec("DELETE FROM routing_rules WHERE menu_item_id = $1", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete routing rules: %w", err)
-	}
-
-	// Delete menu item modifiers
-	_, err = tx.Exec("DELETE FROM menu_item_modifiers WHERE menu_item_id = $1", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete menu item modifiers: %w", err)
-	}
-
-	// Delete the menu item
-	_, err = tx.Exec("DELETE FROM menu_items WHERE id = $1", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete menu item: %w", err)
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	return s.repos.Menu.DeleteItem(ctx, id)
 }
 
 // GetModifiers retrieves all modifiers
 func (s *MenuService) GetModifiers(ctx context.Context) ([]models.Modifier, error) {
-	var modifiers []models.Modifier
-
-	// Get options for each modifier
-	for i := range modifiers {
-		options, err := s.repos.Menu.GetModifierOptions(ctx, modifiers[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get modifier options: %w", err)
-		}
-		modifiers[i].Options = options
-	}
-
-	return modifiers, nil
+	return s.repos.Menu.ListModifiers(ctx)
 }
 
 // GetModifier retrieves a modifier by ID
 func (s *MenuService) GetModifier(ctx context.Context, id uuid.UUID) (*models.Modifier, error) {
-	var modifier models.Modifier
-
-	// Get options
-	options, err := s.repos.Menu.GetModifierOptions(ctx, modifier.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get modifier options: %w", err)
-	}
-	modifier.Options = options
-
-	return &modifier, nil
+	return s.repos.Menu.GetModifier(ctx, id)
 }
 
 // CreateModifier creates a new modifier
 func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
-	// Start a transaction
-	tx, err := s.repos.Menu.BeginTransaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Create the modifier
-	var modifierID uuid.UUID
-	err = tx.GetContext(
-		ctx,
-		&modifierID,
-		"INSERT INTO modifiers (name, is_multiple) VALUES ($1, $2) RETURNING id",
-		name, isMultiple,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create modifier: %w", err)
-	}
-
-	// Add options
-	for _, opt := range options {
-		_, err = tx.Exec(
-			"INSERT INTO modifier_options (modifier_id, name, price_adjustment) VALUES ($1, $2, $3)",
-			modifierID, opt.Name, opt.PriceAdjustment,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to add modifier option: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// Get the created modifier
-	return s.GetModifier(ctx, modifierID)
+	return s.repos.Menu.CreateModifier(ctx, name, isMultiple, options)
 }
 
 // UpdateModifier updates a modifier
 func (s *MenuService) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
-	// Start a transaction
-	tx, err := s.repos.Menu.BeginTransaction(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
-	// Update the modifier
-	_, err = tx.Exec(
-		"UPDATE modifiers SET name = $1, is_multiple = $2, updated_at = $3 WHERE id = $4",
-		name, isMultiple, time.Now(), id,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update modifier: %w", err)
-	}
-
-	// Delete existing options
-	_, err = tx.Exec("DELETE FROM modifier_options WHERE modifier_id = $1", id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete existing options: %w", err)
-	}
-
-	// Add new options
-	for _, opt := range options {
-		_, err = tx.Exec(
-			"INSERT INTO modifier_options (modifier_id, name, price_adjustment) VALUES ($1, $2, $3)",
-			id, opt.Name, opt.PriceAdjustment,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to add modifier option: %w", err)
-		}
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	// Get the updated modifier
-	return s.GetModifier(ctx, id)
+	return s.repos.Menu.UpdateModifier(ctx, id, name, isMultiple, options)
 }
 
 // DeleteModifier deletes a modifier
 func (s *MenuService) DeleteModifier(ctx context.Context, id uuid.UUID) error {
-	// Check if the modifier is used by any menu items
-	var count int
-	err := s.repos.Menu.DB.GetContext(
-		ctx,
-		&count,
-		"SELECT COUNT(*) FROM menu_item_modifiers WHERE modifier_id = $1",
-		id,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to check modifier usage: %w", err)
-	}
-
-	if count > 0 {
-		return fmt.Errorf("cannot delete modifier used by %d menu items", count)
-	}
-
-	// Start a transaction
-	tx, err := s.repos.Menu.BeginTransaction(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Delete options
-	_, err = tx.Exec("DELETE FROM modifier_options WHERE modifier_id = $1", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete modifier options: %w", err)
-	}
-
-	// Delete the modifier
-	_, err = tx.Exec("DELETE FROM modifiers WHERE id = $1", id)
-	if err != nil {
-		return fmt.Errorf("failed to delete modifier: %w", err)
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	return s.repos.Menu.DeleteModifier(ctx, id)
 }
