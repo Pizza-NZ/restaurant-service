@@ -38,7 +38,7 @@ func main() {
 
 	// Initialize Factory
 	// TODO: Refactory this to use db.Postgres
-	factory := repository.NewFactory(database)
+	factory := repository.NewRepositories(database)
 
 	// Initialize WebSocket hub
 	hub := websockets.NewHub()

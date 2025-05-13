@@ -21,12 +21,12 @@ type JWTConfig struct {
 
 // AuthService handles authentication and authorization
 type AuthService struct {
-	repos     *repository.Factory
+	repos     *repository.Repositories
 	jwtConfig JWTConfig
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(repos *repository.Factory, jwtConfig JWTConfig) *AuthService {
+func NewAuthService(repos *repository.Repositories, jwtConfig JWTConfig) *AuthService {
 	return &AuthService{
 		repos:     repos,
 		jwtConfig: jwtConfig,
