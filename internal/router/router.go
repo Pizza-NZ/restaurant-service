@@ -15,14 +15,14 @@ import (
 // Router handles HTTP routing
 type Router struct {
 	mux      *http.ServeMux
-	repos    *repository.Factory
+	repos    *repository.Repositories
 	auth     *service.AuthService
 	hub      *websockets.Hub
 	notFound http.Handler
 }
 
 // New creates a new router
-func New(repos *repository.Factory, auth *service.AuthService, hub *websockets.Hub) *Router {
+func New(repos *repository.Repositories, auth *service.AuthService, hub *websockets.Hub) *Router {
 	r := &Router{
 		mux:      http.NewServeMux(),
 		repos:    repos,
