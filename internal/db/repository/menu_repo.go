@@ -79,6 +79,21 @@ func (r *MenuRepository) CreateCategory(ctx context.Context, category models.Men
 	return &createdCategory, nil
 }
 
+// BeginTransaction begins a new transaction
+func (r *MenuRepository) BeginTransaction(ctx context.Context) (*sqlx.Tx, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	return tx, nil
+}
+
 // UpdateCategory updates a menu category
 func (r *MenuRepository) UpdateCategory(ctx context.Context, category models.MenuCategory) (*models.MenuCategory, error) {
 	query := `

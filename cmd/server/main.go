@@ -11,7 +11,9 @@ import (
 
 	"github.com/pizza-nz/restaurant-service/internal/config"
 	"github.com/pizza-nz/restaurant-service/internal/db"
+	"github.com/pizza-nz/restaurant-service/internal/db/repository"
 	"github.com/pizza-nz/restaurant-service/internal/router"
+	"github.com/pizza-nz/restaurant-service/internal/service"
 	"github.com/pizza-nz/restaurant-service/internal/websockets"
 )
 
@@ -34,12 +36,19 @@ func main() {
 		log.Fatalf("Failed to run database migrations: %v", err)
 	}
 
+	// Initialize Factory
+	// TODO: Refactory this to use db.Postgres
+	factory := repository.NewFactory(database)
+
 	// Initialize WebSocket hub
 	hub := websockets.NewHub()
 	go hub.Run()
 
+	// Initialize Auth Service
+	authService := service.NewAuthService(factory, service.JWTConfig(cfg.JWT))
+
 	// Initialize router
-	r := router.New(database, hub, cfg)
+	r := router.New(factory, authService, hub)
 
 	// Create HTTP server
 	server := &http.Server{
