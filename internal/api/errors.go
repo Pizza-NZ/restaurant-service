@@ -15,3 +15,7 @@ func NotFound(w http.ResponseWriter, err error) {
 	// Log err
 	http.Error(w, err.Error(), http.StatusNotFound)
 }
+
+func MethodNotAllowed(w http.ResponseWriter) {
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+}

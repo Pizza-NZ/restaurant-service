@@ -55,6 +55,11 @@ func (h *Hub) BroadcastToStation(stationID string, message []byte) {
 	}
 }
 
+// BroadcastMessage sends a message to all connected clients
+func (h *Hub) BroadcastMessage(message []byte) {
+	h.broadcast <- message
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
