@@ -187,3 +187,36 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 
 	return nil
 }
+
+// ListUsers lists all users
+func (s *AuthService) ListUsers(ctx context.Context) ([]models.User, error) {
+	return s.repos.User.List(ctx)
+}
+
+// GetUser gets a user by ID
+func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	return s.repos.User.GetByID(ctx, id)
+}
+
+// UpdateUser updates a user
+func (s *AuthService) UpdateUser(ctx context.Context, id uuid.UUID, req models.UserUpdateRequest) (*models.User, error) {
+	// Get existing user
+	user, err := s.repos.User.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	// Update fields
+	user.Username = req.Username
+	user.Name = req.Name
+	user.Role = req.Role
+	user.IsActive = req.IsActive
+
+	// Update in database
+	return s.repos.User.Update(ctx, *user)
+}
+
+// DeleteUser deletes a user
+func (s *AuthService) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	return s.repos.User.Delete(ctx, id)
+}

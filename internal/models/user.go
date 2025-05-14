@@ -34,3 +34,11 @@ type UserRequest struct {
 	Role     UserRole `json:"role" validate:"required,oneof=admin manager cashier kitchen"`
 	IsActive bool     `json:"is_active"`
 }
+
+// UserUpdateRequest is used for updating user information
+type UserUpdateRequest struct {
+	Username string   `json:"username" validate:"required,min=3,max=50"`
+	Name     string   `json:"name" validate:"required,min=2,max=100"`
+	Role     UserRole `json:"role" validate:"required,oneof=admin manager cashier kitchen"`
+	IsActive bool     `json:"is_active"`
+}
