@@ -55,6 +55,12 @@ type ModifierOption struct {
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
 }
 
+// ModifierOptionRequest is used for creating/updating modifier options
+type ModifierOptionRequest struct {
+	Name            string  `json:"name" validate:"required,min=1,max=100"`
+	PriceAdjustment float64 `json:"price_adjustment" validate:"gte=0"`
+}
+
 // MenuItemModifier represents the association between a menu item and a modifier
 type MenuItemModifier struct {
 	ID         uuid.UUID `db:"id" json:"id"`
