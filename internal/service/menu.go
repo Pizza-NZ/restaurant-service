@@ -140,12 +140,12 @@ func (s *MenuService) GetModifier(ctx context.Context, id uuid.UUID) (*models.Mo
 }
 
 // CreateModifier creates a new modifier
-func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
+func (s *MenuService) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
 	return s.repos.Menu.CreateModifier(ctx, name, isMultiple, options)
 }
 
 // UpdateModifier updates a modifier
-func (s *MenuService) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
+func (s *MenuService) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
 	return s.repos.Menu.UpdateModifier(ctx, id, name, isMultiple, options)
 }
 

@@ -537,7 +537,7 @@ func (r *MenuRepository) GetModifier(ctx context.Context, id uuid.UUID) (*models
 }
 
 // CreateModifier creates a new modifier
-func (r *MenuRepository) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
+func (r *MenuRepository) CreateModifier(ctx context.Context, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
 	// Start a transaction
 	tx, err := r.beginTransaction(ctx)
 	if err != nil {
@@ -578,7 +578,7 @@ func (r *MenuRepository) CreateModifier(ctx context.Context, name string, isMult
 }
 
 // UpdateModifier updates a modifier
-func (r *MenuRepository) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOption) (*models.Modifier, error) {
+func (r *MenuRepository) UpdateModifier(ctx context.Context, id uuid.UUID, name string, isMultiple bool, options []models.ModifierOptionRequest) (*models.Modifier, error) {
 	// Start a transaction
 	tx, err := r.beginTransaction(ctx)
 	if err != nil {
