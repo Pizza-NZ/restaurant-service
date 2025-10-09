@@ -8,10 +8,20 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
-	"github.com/pizza-nz/restaurant-service/internal/db/repository"
 	"github.com/pizza-nz/restaurant-service/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// UserRepository defines the database methods needed by the AuthService.
+type UserRepository interface {
+	GetByUsername(ctx context.Context, username string) (*models.User, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*models.User, error)
+	Create(ctx context.Context, user models.User) (*models.User, error)
+	Update(ctx context.Context, user models.User) (*models.User, error)
+	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
+	List(ctx context.Context) ([]models.User, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
 
 // JWTConfig holds configuration for JWT token generation
 type JWTConfig struct {
@@ -21,14 +31,14 @@ type JWTConfig struct {
 
 // AuthService handles authentication and authorization
 type AuthService struct {
-	repos     *repository.Repositories
+	userRepo  UserRepository // Use the interface
 	jwtConfig JWTConfig
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService(repos *repository.Repositories, jwtConfig JWTConfig) *AuthService {
+func NewAuthService(userRepo UserRepository, jwtConfig JWTConfig) *AuthService {
 	return &AuthService{
-		repos:     repos,
+		userRepo:  userRepo,
 		jwtConfig: jwtConfig,
 	}
 }
@@ -43,7 +53,7 @@ type Claims struct {
 // Login authenticates a user and returns a JWT token
 func (s *AuthService) Login(ctx context.Context, username, password string) (string, *models.User, error) {
 	// Get user by username
-	user, err := s.repos.User.GetByUsername(ctx, username)
+	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid credentials")
 	}
@@ -125,7 +135,7 @@ func (s *AuthService) GetUserFromToken(ctx context.Context, tokenString string) 
 		return nil, fmt.Errorf("invalid user ID in token: %w", err)
 	}
 
-	user, err := s.repos.User.GetByID(ctx, userID)
+	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
@@ -151,7 +161,7 @@ func (s *AuthService) RegisterUser(ctx context.Context, req models.UserRequest) 
 	}
 
 	// Create the user
-	createdUser, err := s.repos.User.Create(ctx, user)
+	createdUser, err := s.userRepo.Create(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -162,7 +172,7 @@ func (s *AuthService) RegisterUser(ctx context.Context, req models.UserRequest) 
 // ChangePassword changes a user's password
 func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
 	// Get the user
-	user, err := s.repos.User.GetByID(ctx, userID)
+	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
@@ -180,7 +190,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	}
 
 	// Update the password
-	err = s.repos.User.UpdatePassword(ctx, userID, string(hashedPassword))
+	err = s.userRepo.UpdatePassword(ctx, userID, string(hashedPassword))
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
@@ -190,18 +200,18 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 
 // ListUsers lists all users
 func (s *AuthService) ListUsers(ctx context.Context) ([]models.User, error) {
-	return s.repos.User.List(ctx)
+	return s.userRepo.List(ctx)
 }
 
 // GetUser gets a user by ID
 func (s *AuthService) GetUser(ctx context.Context, id uuid.UUID) (*models.User, error) {
-	return s.repos.User.GetByID(ctx, id)
+	return s.userRepo.GetByID(ctx, id)
 }
 
 // UpdateUser updates a user
 func (s *AuthService) UpdateUser(ctx context.Context, id uuid.UUID, req models.UserUpdateRequest) (*models.User, error) {
 	// Get existing user
-	user, err := s.repos.User.GetByID(ctx, id)
+	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
@@ -213,10 +223,10 @@ func (s *AuthService) UpdateUser(ctx context.Context, id uuid.UUID, req models.U
 	user.IsActive = req.IsActive
 
 	// Update in database
-	return s.repos.User.Update(ctx, *user)
+	return s.userRepo.Update(ctx, *user)
 }
 
 // DeleteUser deletes a user
 func (s *AuthService) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	return s.repos.User.Delete(ctx, id)
+	return s.userRepo.Delete(ctx, id)
 }

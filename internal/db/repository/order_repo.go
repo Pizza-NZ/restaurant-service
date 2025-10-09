@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/pizza-nz/restaurant-service/internal/models"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // OrderRepository handles order data access
@@ -21,8 +23,17 @@ func NewOrderRepository(db *sqlx.DB) *OrderRepository {
 	return &OrderRepository{db: db}
 }
 
+func recordMetrics(ctx context.Context, queryName string, startTime time.Time) {
+	dbQueryDuration.WithLabelValues(queryName).Observe(time.Since(startTime).Seconds())
+
+	tracer := otel.Tracer("restaurant-service")
+	_, span := tracer.Start(ctx, queryName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+}
+
 // GetByID retrieves an order by ID
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Order, error) {
+	defer recordMetrics(ctx, "order_get_by_id", time.Now())
 	query := `
 		SELECT id, user_id, order_number, status, total, ordered_at, completed_at, created_at, updated_at
 		FROM orders
@@ -47,6 +58,7 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Or
 
 // GetOrderItems retrieves items for an order
 func (r *OrderRepository) GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]models.OrderItem, error) {
+	defer recordMetrics(ctx, "order_get_order_items", time.Now())
 	query := `
 		SELECT oi.id, oi.order_id, oi.menu_item_id, oi.station_id, oi.quantity, oi.price,
 		       oi.status, oi.special_instructions, oi.sent_to_station_at, oi.completed_at, 
@@ -78,6 +90,7 @@ func (r *OrderRepository) GetOrderItems(ctx context.Context, orderID uuid.UUID) 
 
 // GetOrderItemModifiers retrieves modifiers for an order item
 func (r *OrderRepository) GetOrderItemModifiers(ctx context.Context, orderItemID uuid.UUID) ([]models.OrderItemModifier, error) {
+	defer recordMetrics(ctx, "order_get_order_item_modifiers", time.Now())
 	query := `
 		SELECT oim.id, oim.order_item_id, oim.modifier_option_id, oim.price_adjustment, oim.created_at,
 		       mo.name as name
@@ -97,6 +110,7 @@ func (r *OrderRepository) GetOrderItemModifiers(ctx context.Context, orderItemID
 
 // List retrieves orders, optionally filtered by status
 func (r *OrderRepository) List(ctx context.Context, status *models.OrderStatus) ([]models.Order, error) {
+	defer recordMetrics(ctx, "order_list", time.Now())
 	var query string
 	var args []interface{}
 
@@ -130,6 +144,7 @@ func (r *OrderRepository) List(ctx context.Context, status *models.OrderStatus) 
 
 // Create creates a new order with its items
 func (r *OrderRepository) Create(ctx context.Context, order models.Order, itemRequests []models.OrderItemRequest) (*models.Order, error) {
+	defer recordMetrics(ctx, "order_create", time.Now())
 	// Start a transaction
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -318,6 +333,7 @@ func (r *OrderRepository) Create(ctx context.Context, order models.Order, itemRe
 
 // UpdateStatus updates an order's status
 func (r *OrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.OrderStatus) error {
+	defer recordMetrics(ctx, "order_update_status", time.Now())
 	query := `
 		UPDATE orders
 		SET status = $1, updated_at = $2
@@ -356,6 +372,7 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 
 // UpdateItemStatus updates an order item's status
 func (r *OrderRepository) UpdateItemStatus(ctx context.Context, itemID uuid.UUID, status models.OrderItemStatus) error {
+	defer recordMetrics(ctx, "order_update_item_status", time.Now())
 	query := `
 		UPDATE order_items
 		SET status = $1, updated_at = $2
@@ -364,17 +381,18 @@ func (r *OrderRepository) UpdateItemStatus(ctx context.Context, itemID uuid.UUID
 	args := []interface{}{status, time.Now()}
 
 	// If the status is completed, set the completed_at timestamp
-	if status == models.OrderItemStatusCompleted {
+	switch status {
+	case models.OrderItemStatusCompleted:
 		query += ", completed_at = $3 WHERE id = $4"
 		now := time.Now()
 		args = append(args, now, itemID)
-	} else if status == models.OrderItemStatusInProgress {
+	case models.OrderItemStatusInProgress:
 		// If the item is now in progress and wasn't sent to a station yet,
 		// set the sent_to_station_at timestamp
 		query += ", sent_to_station_at = CASE WHEN sent_to_station_at IS NULL THEN $3 ELSE sent_to_station_at END WHERE id = $4"
 		now := time.Now()
 		args = append(args, now, itemID)
-	} else {
+	default:
 		query += " WHERE id = $3"
 		args = append(args, itemID)
 	}
@@ -434,6 +452,7 @@ func (r *OrderRepository) UpdateItemStatus(ctx context.Context, itemID uuid.UUID
 
 // GetStationItems gets all pending and in-progress items for a station
 func (r *OrderRepository) GetStationItems(ctx context.Context, stationID uuid.UUID) ([]models.OrderItem, error) {
+	defer recordMetrics(ctx, "order_get_station_items", time.Now())
 	query := `
 		SELECT oi.id, oi.order_id, oi.menu_item_id, oi.station_id, oi.quantity, oi.price,
 		       oi.status, oi.special_instructions, oi.sent_to_station_at, oi.completed_at, 
@@ -478,6 +497,7 @@ func (r *OrderRepository) GetStationItems(ctx context.Context, stationID uuid.UU
 
 // GetOrderHistory gets order history for a specified time range
 func (r *OrderRepository) GetOrderHistory(ctx context.Context, startDate, endDate time.Time) ([]models.Order, error) {
+	defer recordMetrics(ctx, "order_get_order_history", time.Now())
 	query := `
 		SELECT id, user_id, order_number, status, total, ordered_at, completed_at, created_at, updated_at
 		FROM orders
@@ -497,6 +517,7 @@ func (r *OrderRepository) GetOrderHistory(ctx context.Context, startDate, endDat
 
 // VoidItem voids an order item
 func (r *OrderRepository) VoidItem(ctx context.Context, itemID uuid.UUID, reason string) error {
+	defer recordMetrics(ctx, "order_void_item", time.Now())
 	// Start a transaction
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {

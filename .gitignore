@@ -1,5 +1,5 @@
 # Binaries
-/bin/
+bin/
 *.exe
 *.exe~
 *.dll
@@ -15,15 +15,15 @@
 *.swo
 
 # Build and output
-/dist/
-/tmp/
+dist/
+tmp/
 
 # Dependency directories
-/vendor/
+vendor/
 
 # Development configuration
-/configs/development.yaml
-/configs/production.yaml
+configs/development.yaml
+configs/production.yaml
 
 # Logs
 *.log
@@ -35,6 +35,6 @@ Thumbs.db
 # Test files
 *.test
 *.tmp
-/coverage.out
+coverage.out
 
 migrate

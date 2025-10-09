@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -190,7 +191,11 @@ func (r *MenuRepository) GetItemModifiers(ctx context.Context, itemID uuid.UUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query item modifiers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			log.Printf("Failed to close rows: %v", err)
+		}
+	}()
 
 	var modifiers []models.MenuItemModifier
 	for rows.Next() {

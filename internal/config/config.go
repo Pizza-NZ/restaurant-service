@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 
 	"gopkg.in/yaml.v2"
@@ -33,6 +34,12 @@ type Database struct {
 	SSLMode  string `yaml:"sslmode"`
 }
 
+type Formatting struct {
+	DateFormat     string `yaml:"date_format"`
+	TimeFormat     string `yaml:"time_format"`
+	DateTimeFormat string `yaml:"datetime_format"`
+}
+
 func Load() (*Config, error) {
 	configPath := "configs/development.yaml"
 	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
@@ -43,12 +50,23 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+defer func() {
+		if err := f.Close(); err != nil {
+			log.Printf("Failed to close file: %v", err)
+		}
+	}()
 
 	var cfg Config
 	decoder := yaml.NewDecoder(f)
 	if err := decoder.Decode(&cfg); err != nil {
 		return nil, err
+	}
+
+	if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
+		cfg.Database.Password = dbPassword
+	}
+	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
+		cfg.JWT.Secret = jwtSecret
 	}
 
 	return &cfg, nil

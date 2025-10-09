@@ -17,7 +17,6 @@ type contextKey string
 const (
 	UserIDKey   contextKey = "userID"
 	UserRoleKey contextKey = "userRole"
-	UserKey     contextKey = "user"
 )
 
 // Auth middleware for authenticating requests
@@ -47,14 +46,9 @@ func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
 				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 				return
 			}
-
-			// Parse the user ID
-			userID := claims.UserID
-			userRole := claims.Role
-
 			// Add user info to context
-			ctx := context.WithValue(r.Context(), UserIDKey, userID)
-			ctx = context.WithValue(ctx, UserRoleKey, userRole)
+			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, UserRoleKey, models.UserRole(claims.Role))
 
 			// Call the next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -63,28 +57,25 @@ func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
 }
 
 // RequireRole middleware for checking user roles
-func RequireRole(roles ...models.UserRole) func(http.Handler) http.Handler {
+func RequireRole(allowedRoles ...models.UserRole) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get the role from context
-			roleValue := r.Context().Value(UserRoleKey)
-			if roleValue == nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			role, ok := GetUserRole(r.Context())
+			if !ok {
+				http.Error(w, "Forbidden: Role not found in token", http.StatusForbidden)
 				return
 			}
 
-			role := models.UserRole(roleValue.(string))
-
-			// Check if the role is allowed
-			allowed := false
-			for _, allowedRole := range roles {
+			// Check if the role is isAllowed
+			isAllowed := false
+			for _, allowedRole := range allowedRoles {
 				if role == allowedRole {
-					allowed = true
+					isAllowed = true
 					break
 				}
 			}
 
-			if !allowed {
+			if !isAllowed {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}

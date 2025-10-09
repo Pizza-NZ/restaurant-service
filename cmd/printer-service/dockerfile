@@ -1,0 +1,25 @@
+# Use a slim Go image for the builder stage
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Copy module files and download dependencies to leverage Docker layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the application source code
+COPY . .
+
+# Build the printer-service binary.
+# CGO_ENABLED=0 creates a static binary, which is good for small container images.
+RUN CGO_ENABLED=0 go build -o /printer-service ./cmd/printer-service
+
+# --- Final Stage ---
+# Use a minimal alpine image for the final container
+FROM alpine:latest
+
+# Copy only the compiled binary from the builder stage
+COPY --from=builder /printer-service /printer-service
+
+# Set the command to run the service when the container starts
+CMD ["/printer-service"]

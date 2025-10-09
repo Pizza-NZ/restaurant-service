@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pizza-nz/restaurant-service/internal/api"
 	"github.com/pizza-nz/restaurant-service/internal/middleware"
 	"github.com/pizza-nz/restaurant-service/internal/models"
 	"github.com/pizza-nz/restaurant-service/internal/service"
@@ -29,39 +30,14 @@ func NewOrderHandler(orderService *service.OrderService, hub *websockets.Hub) *O
 
 // HandleOrders handles requests for orders
 func (h *OrderHandler) HandleOrders(w http.ResponseWriter, r *http.Request) {
-	// Extract the ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/orders")
+	path := strings.TrimPrefix(r.URL.Path, "/api/orders")
 	path = strings.TrimPrefix(path, "/")
 
-	// Check for special endpoints
 	if strings.HasPrefix(path, "history") {
 		h.handleOrderHistory(w, r)
 		return
-	} else if strings.Contains(path, "/receipt") {
-		// Extract order ID from path
-		parts := strings.Split(path, "/")
-		if len(parts) < 2 {
-			http.Error(w, "Invalid path", http.StatusBadRequest)
-			return
-		}
-
-		id, err := uuid.Parse(parts[0])
-		if err != nil {
-			http.Error(w, "Invalid order ID", http.StatusBadRequest)
-			return
-		}
-
-		if r.Method == http.MethodGet {
-			h.getOrderReceipt(w, r, id)
-		} else if r.Method == http.MethodPost && parts[1] == "reprint" {
-			h.reprintOrderReceipt(w, r, id)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-		return
 	}
 
-	// Handle different HTTP methods
 	switch r.Method {
 	case http.MethodGet:
 		if path == "" {
@@ -69,74 +45,56 @@ func (h *OrderHandler) HandleOrders(w http.ResponseWriter, r *http.Request) {
 		} else {
 			id, err := uuid.Parse(path)
 			if err != nil {
-				http.Error(w, "Invalid order ID", http.StatusBadRequest)
+				api.Error(w, http.StatusBadRequest, "Invalid order ID")
 				return
 			}
 			h.getOrder(w, r, id)
 		}
-
 	case http.MethodPost:
 		if path != "" {
-			http.Error(w, "Invalid path", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid path")
 			return
 		}
 		h.createOrder(w, r)
-
 	case http.MethodPut:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			http.Error(w, "Invalid order ID", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid order ID")
 			return
 		}
 		h.updateOrderStatus(w, r, id)
-
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		api.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
 // HandleOrderItems handles requests for order items
 func (h *OrderHandler) HandleOrderItems(w http.ResponseWriter, r *http.Request) {
-	// Extract the ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/order-items")
+	path := strings.TrimPrefix(r.URL.Path, "/api/order-items")
 	path = strings.TrimPrefix(path, "/")
 
-	// Check for special endpoints
-	if strings.Contains(path, "/void") {
-		// Extract item ID from path
-		parts := strings.Split(path, "/")
-		if len(parts) < 2 {
-			http.Error(w, "Invalid path", http.StatusBadRequest)
-			return
-		}
+	parts := strings.Split(path, "/")
+	itemIDStr := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
 
-		id, err := uuid.Parse(parts[0])
-		if err != nil {
-			http.Error(w, "Invalid item ID", http.StatusBadRequest)
-			return
-		}
-
-		if r.Method == http.MethodPut {
-			h.voidOrderItem(w, r, id)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
+	itemID, err := uuid.Parse(itemIDStr)
+	if err != nil {
+		api.Error(w, http.StatusBadRequest, "Invalid item ID")
 		return
 	}
 
-	// Handle different HTTP methods
-	switch r.Method {
-	case http.MethodPut:
-		id, err := uuid.Parse(path)
-		if err != nil {
-			http.Error(w, "Invalid item ID", http.StatusBadRequest)
-			return
-		}
-		h.updateOrderItemStatus(w, r, id)
-
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if r.Method == http.MethodPut && action == "void" {
+		h.voidOrderItem(w, r, itemID)
+		return
+	} else if r.Method == http.MethodPut {
+		h.updateOrderItemStatus(w, r, itemID)
+		return
 	}
+
+	api.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 }
 
 // listOrders lists orders, optionally filtered by status
@@ -151,56 +109,52 @@ func (h *OrderHandler) listOrders(w http.ResponseWriter, r *http.Request) {
 
 	orders, err := h.orderService.ListOrders(r.Context(), status)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to list orders")
 		return
 	}
 
-	respondJSON(w, orders)
+	api.JSON(w, http.StatusOK, orders)
 }
 
 // getOrder gets an order by ID
 func (h *OrderHandler) getOrder(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	order, err := h.orderService.GetOrder(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		api.Error(w, http.StatusNotFound, "Order not found")
 		return
 	}
 
-	respondJSON(w, order)
+	api.JSON(w, http.StatusOK, order)
 }
 
 // createOrder creates a new order
 func (h *OrderHandler) createOrder(w http.ResponseWriter, r *http.Request) {
 	var req models.OrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
-	// Get the user ID from context
 	userIDStr, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		http.Error(w, "User ID not found in context", http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "User ID not found in context")
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Invalid user ID in context")
 		return
 	}
 
 	order, err := h.orderService.CreateOrder(r.Context(), req, userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to create order")
 		return
 	}
 
-	// Broadcast order creation to connected clients
 	h.broadcastOrderUpdate("order.new", order.ID.String())
-
-	w.WriteHeader(http.StatusCreated)
-	respondJSON(w, order)
+	api.JSON(w, http.StatusCreated, order)
 }
 
 // updateOrderStatus updates an order's status
@@ -210,21 +164,17 @@ func (h *OrderHandler) updateOrderStatus(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	status := models.OrderStatus(req.Status)
-
-	err := h.orderService.UpdateOrderStatus(r.Context(), id, status)
+	err := h.orderService.UpdateOrderStatus(r.Context(), id, models.OrderStatus(req.Status))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to update order status")
 		return
 	}
 
-	// Broadcast order update to connected clients
 	h.broadcastOrderUpdate("order.update", id.String())
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -235,21 +185,17 @@ func (h *OrderHandler) updateOrderItemStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	status := models.OrderItemStatus(req.Status)
-
-	err := h.orderService.UpdateOrderItemStatus(r.Context(), id, status)
+	err := h.orderService.UpdateOrderItemStatus(r.Context(), id, models.OrderItemStatus(req.Status))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to update order item status")
 		return
 	}
 
-	// Broadcast item update to connected clients
 	h.broadcastOrderUpdate("item.update", id.String())
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -260,30 +206,27 @@ func (h *OrderHandler) voidOrderItem(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	err := h.orderService.VoidOrderItem(r.Context(), id, req.Reason)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to void order item")
 		return
 	}
 
-	// Broadcast item update to connected clients
 	h.broadcastOrderUpdate("item.void", id.String())
-
 	w.WriteHeader(http.StatusOK)
 }
 
 // handleOrderHistory handles order history requests
 func (h *OrderHandler) handleOrderHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		api.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
-	// Parse date range from query parameters
 	startDateStr := r.URL.Query().Get("start_date")
 	endDateStr := r.URL.Query().Get("end_date")
 
@@ -291,115 +234,55 @@ func (h *OrderHandler) handleOrderHistory(w http.ResponseWriter, r *http.Request
 	var err error
 
 	if startDateStr == "" {
-		// Default to the beginning of today
 		startDate = time.Now().Truncate(24 * time.Hour)
 	} else {
 		startDate, err = time.Parse("2006-01-02", startDateStr)
 		if err != nil {
-			http.Error(w, "Invalid start_date format (use YYYY-MM-DD)", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid start_date format (use YYYY-MM-DD)")
 			return
 		}
 	}
 
 	if endDateStr == "" {
-		// Default to the end of today
 		endDate = startDate.Add(24 * time.Hour).Add(-time.Second)
 	} else {
 		endDate, err = time.Parse("2006-01-02", endDateStr)
 		if err != nil {
-			http.Error(w, "Invalid end_date format (use YYYY-MM-DD)", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid end_date format (use YYYY-MM-DD)")
 			return
 		}
-		// Set to end of the day
 		endDate = endDate.Add(24 * time.Hour).Add(-time.Second)
 	}
 
 	orders, err := h.orderService.GetOrderHistory(r.Context(), startDate, endDate)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to get order history")
 		return
 	}
 
-	respondJSON(w, orders)
-}
-
-// getOrderReceipt gets a receipt for an order
-func (h *OrderHandler) getOrderReceipt(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	receipt, err := h.orderService.GetOrderReceipt(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	response := struct {
-		Receipt string `json:"receipt"`
-	}{
-		Receipt: receipt,
-	}
-
-	respondJSON(w, response)
-}
-
-// reprintOrderReceipt reprints a receipt for an order
-func (h *OrderHandler) reprintOrderReceipt(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	var req struct {
-		PrinterID string `json:"printer_id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	printerID, err := uuid.Parse(req.PrinterID)
-	if err != nil {
-		http.Error(w, "Invalid printer ID", http.StatusBadRequest)
-		return
-	}
-
-	err = h.orderService.ReprintOrderReceipt(r.Context(), id, printerID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	respondJSON(w, struct {
-		Success bool `json:"success"`
-	}{
-		Success: true,
-	})
+	api.JSON(w, http.StatusOK, orders)
 }
 
 // HandleStationItems handles requests for station items
 func (h *OrderHandler) HandleStationItems(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract the station ID from the path
-	path := strings.TrimPrefix(r.URL.Path, "/stations/")
-	path = strings.TrimPrefix(path, "/items")
-
-	stationID, err := uuid.Parse(path)
+	stationIDStr := r.PathValue("id")
+	stationID, err := uuid.Parse(stationIDStr)
 	if err != nil {
-		http.Error(w, "Invalid station ID", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid station ID in path")
 		return
 	}
 
 	items, err := h.orderService.GetStationItems(r.Context(), stationID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, "Failed to get station items")
 		return
 	}
 
-	respondJSON(w, items)
+	api.JSON(w, http.StatusOK, items)
 }
 
 // broadcastOrderUpdate broadcasts an order update to all connected clients
 func (h *OrderHandler) broadcastOrderUpdate(updateType, id string) {
-	// Create a message
 	message := struct {
 		Type string `json:"type"`
 		Data struct {
@@ -417,12 +300,10 @@ func (h *OrderHandler) broadcastOrderUpdate(updateType, id string) {
 		},
 	}
 
-	// Marshal the message to JSON
 	jsonMessage, err := json.Marshal(message)
 	if err != nil {
 		return
 	}
 
-	// Broadcast to all clients
 	h.hub.BroadcastMessage(jsonMessage)
 }

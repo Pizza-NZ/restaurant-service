@@ -3,7 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -13,6 +14,8 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pizza-nz/restaurant-service/internal/config"
 )
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 type Postgres struct {
 	DB *sqlx.DB
@@ -33,7 +36,7 @@ func NewPostgres(cfg config.Database) (*Postgres, error) {
 		if err == nil {
 			break
 		}
-		log.Printf("Failed to connect to database (attempt %d/%d): %v", i+1, maxRetries, err)
+		logger.Warn("Failed to connect to database", "attempt", i+1, "max_attempts", maxRetries, "error", err)
 		time.Sleep(time.Duration(i+1) * 2 * time.Second) // Exponential backoff
 	}
 
@@ -97,14 +100,18 @@ func (p *Postgres) Migrate(cfg config.Database) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize migrate: %w", err)
 	}
-	defer m.Close()
+	defer func() {
+		if err, _ := m.Close(); err != nil {
+			logger.Error("Failed to close migration", "error", err)
+		}
+	}()
 
 	// Run migrations
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	log.Println("Database migrations completed successfully")
+	logger.Info("Database migrations completed successfully")
 	return nil
 }
 

@@ -3,48 +3,83 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pizza-nz/restaurant-service/internal/db/repository"
 	"github.com/pizza-nz/restaurant-service/internal/models"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// OrderService handles order-related business logic
-type OrderService struct {
-	repos          *repository.Repositories
-	printerService *PrinterService
+var (
+	orderCreationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name: "order_creation_duration_seconds",
+		Help: "Duration of the CreateOrder function.",
+	})
+	ordersCreated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "orders_created_total",
+		Help: "Total number of created orders.",
+	})
+)
+
+// OrderRepository defines the full set of database methods needed by the OrderService.
+type OrderRepository interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*models.Order, error)
+	List(ctx context.Context, status *models.OrderStatus) ([]models.Order, error)
+	Create(ctx context.Context, order models.Order, items []models.OrderItemRequest) (*models.Order, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status models.OrderStatus) error
+	UpdateItemStatus(ctx context.Context, itemID uuid.UUID, status models.OrderItemStatus) error
+	VoidItem(ctx context.Context, itemID uuid.UUID, reason string) error
+	GetStationItems(ctx context.Context, stationID uuid.UUID) ([]models.OrderItem, error)
+	GetOrderHistory(ctx context.Context, startDate, endDate time.Time) ([]models.Order, error)
 }
 
-// NewOrderService creates a new order service
-func NewOrderService(repos *repository.Repositories, printerService *PrinterService) *OrderService {
+// The EventPublisher interface remains the same
+type EventPublisher interface {
+	PublishOrderCreated(ctx context.Context, orderID string) error
+}
+
+// OrderService handles order-related business logic.
+// OrderService handles order-related business logic.
+type OrderService struct {
+	orderRepo OrderRepository // Use the interface type
+	publisher EventPublisher  // Use the interface type
+	logger    *slog.Logger
+}
+
+// NewOrderService creates a new order service.
+func NewOrderService(repos OrderRepository, publisher EventPublisher) *OrderService { // Depend on interfaces
 	return &OrderService{
-		repos:          repos,
-		printerService: printerService,
+		orderRepo: repos,
+		publisher: publisher,
+		logger:    slog.New(slog.NewJSONHandler(os.Stdout, nil)),
 	}
 }
 
-// GetOrder retrieves an order by ID
+// GetOrder retrieves a single order by its ID.
 func (s *OrderService) GetOrder(ctx context.Context, id uuid.UUID) (*models.Order, error) {
-	return s.repos.Order.GetByID(ctx, id)
+	return s.orderRepo.GetByID(ctx, id)
 }
 
-// ListOrders lists orders, optionally filtered by status
+// ListOrders retrieves a list of orders, optionally filtered by status.
 func (s *OrderService) ListOrders(ctx context.Context, status *models.OrderStatus) ([]models.Order, error) {
-	return s.repos.Order.List(ctx, status)
+	return s.orderRepo.List(ctx, status)
 }
 
-// GetOrderHistory retrieves order history for a time range
+// GetOrderHistory retrieves orders within a specified date range.
 func (s *OrderService) GetOrderHistory(ctx context.Context, startDate, endDate time.Time) ([]models.Order, error) {
-	return s.repos.Order.GetOrderHistory(ctx, startDate, endDate)
+	return s.orderRepo.GetOrderHistory(ctx, startDate, endDate)
 }
 
-// CreateOrder creates a new order
+// CreateOrder validates and saves a new order, then publishes an event for downstream processing.
 func (s *OrderService) CreateOrder(ctx context.Context, req models.OrderRequest, userID uuid.UUID) (*models.Order, error) {
-	// Generate order number based on current date and a random suffix
+	startTime := time.Now()
+	// Generate a unique, human-readable order number
 	orderNumber := time.Now().Format("20060102-") + uuid.New().String()[0:4]
 
-	// Create the order
 	order := models.Order{
 		UserID:      userID,
 		OrderNumber: orderNumber,
@@ -52,116 +87,88 @@ func (s *OrderService) CreateOrder(ctx context.Context, req models.OrderRequest,
 		OrderedAt:   time.Now(),
 	}
 
-	// Create the order with items
-	createdOrder, err := s.repos.Order.Create(ctx, order, req.Items)
+	// The repository handles the complex transaction of creating the order and all its items.
+	createdOrder, err := s.orderRepo.Create(ctx, order, req.Items)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create order: %w", err)
+		return nil, fmt.Errorf("failed to create order in database: %w", err)
 	}
 
-	// Process the order (route items to stations, print tickets)
-	err = s.processNewOrder(ctx, createdOrder)
-	if err != nil {
-		// Log the error but don't fail the order creation
-		// In a production system, you might want to handle this differently
-		fmt.Printf("Error processing order: %v\n", err)
+	// After the order is successfully saved, publish an event.
+	// This decouples order creation from subsequent actions like printing.
+	if err := s.publisher.PublishOrderCreated(ctx, createdOrder.ID.String()); err != nil {
+		// This is a critical failure. The order is saved but won't be printed or sent to KDS.
+		// Log this as a major error for monitoring and potential manual intervention.
+		s.logger.Error("CRITICAL: Failed to publish order.created event", "order_id", createdOrder.ID, "error", err)
 	}
+
+	orderCreationDuration.Observe(time.Since(startTime).Seconds())
+	ordersCreated.Inc()
 
 	return createdOrder, nil
 }
 
-// processNewOrder routes items to stations and prints tickets
-func (s *OrderService) processNewOrder(ctx context.Context, order *models.Order) error {
-	// Update order status to in progress
-	err := s.repos.Order.UpdateStatus(ctx, order.ID, models.OrderStatusInProgress)
-	if err != nil {
-		return fmt.Errorf("failed to update order status: %w", err)
-	}
-
-	// Group items by station
-	stationItems := make(map[uuid.UUID][]models.OrderItem)
-
-	for _, item := range order.Items {
-		stationItems[item.StationID] = append(stationItems[item.StationID], item)
-	}
-
-	// For each station, print a ticket
-	for stationID, items := range stationItems {
-		// Get the station
-		station, err := s.repos.Station.GetByID(ctx, stationID)
-		if err != nil {
-			return fmt.Errorf("failed to get station: %w", err)
-		}
-
-		// If the station has a printer, print a ticket
-		if station.PrinterID != nil {
-			err = s.printerService.PrintOrderItems(ctx, order, items, *station.PrinterID)
-			if err != nil {
-				return fmt.Errorf("failed to print order items: %w", err)
-			}
-		}
-
-		// Update items status to in progress
-		for _, item := range items {
-			err = s.repos.Order.UpdateItemStatus(ctx, item.ID, models.OrderItemStatusInProgress)
-			if err != nil {
-				return fmt.Errorf("failed to update item status: %w", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// UpdateOrderStatus updates an order's status
+// UpdateOrderStatus updates the status of an entire order.
 func (s *OrderService) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status models.OrderStatus) error {
-	return s.repos.Order.UpdateStatus(ctx, id, status)
+	return s.orderRepo.UpdateStatus(ctx, id, status)
 }
 
-// UpdateOrderItemStatus updates an order item's status
+// UpdateOrderItemStatus updates the status of a single item within an order.
 func (s *OrderService) UpdateOrderItemStatus(ctx context.Context, itemID uuid.UUID, status models.OrderItemStatus) error {
-	return s.repos.Order.UpdateItemStatus(ctx, itemID, status)
+	return s.orderRepo.UpdateItemStatus(ctx, itemID, status)
 }
 
-// VoidOrderItem voids an order item
+// VoidOrderItem marks an item as void and adjusts the order total.
 func (s *OrderService) VoidOrderItem(ctx context.Context, itemID uuid.UUID, reason string) error {
-	return s.repos.Order.VoidItem(ctx, itemID, reason)
+	return s.orderRepo.VoidItem(ctx, itemID, reason)
 }
 
-// GetStationItems gets all pending and in-progress items for a station
+// GetStationItems retrieves all active items for a specific kitchen/bar station.
 func (s *OrderService) GetStationItems(ctx context.Context, stationID uuid.UUID) ([]models.OrderItem, error) {
-	return s.repos.Order.GetStationItems(ctx, stationID)
+	return s.orderRepo.GetStationItems(ctx, stationID)
 }
 
-// ReprintOrderReceipt reprints an order receipt
-func (s *OrderService) ReprintOrderReceipt(ctx context.Context, orderID uuid.UUID, printerID uuid.UUID) error {
-	// Get the order
-	order, err := s.repos.Order.GetByID(ctx, orderID)
-	if err != nil {
-		return fmt.Errorf("failed to get order: %w", err)
-	}
-
-	// Print the receipt
-	err = s.printerService.PrintReceipt(ctx, order, printerID)
-	if err != nil {
-		return fmt.Errorf("failed to print receipt: %w", err)
-	}
-
-	return nil
-}
-
-// GetOrderReceipt generates a receipt for an order
+// GetOrderReceipt generates a formatted text receipt for an order.
+// This is a read-only operation and is safe to keep in this service.
 func (s *OrderService) GetOrderReceipt(ctx context.Context, orderID uuid.UUID) (string, error) {
-	// Get the order
-	order, err := s.repos.Order.GetByID(ctx, orderID)
+	order, err := s.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get order: %w", err)
 	}
+	return generateReceiptText(order)
+}
 
-	// Generate the receipt
-	receipt, err := s.printerService.GenerateReceiptText(ctx, order)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate receipt: %w", err)
+// generateReceiptText is a helper to format order data into a string.
+func generateReceiptText(order *models.Order) (string, error) {
+	var sb strings.Builder
+
+	sb.WriteString("===============================\n")
+	sb.WriteString("          RECEIPT             \n")
+	sb.WriteString("===============================\n\n")
+	sb.WriteString(fmt.Sprintf("Order #: %s\n", order.OrderNumber))
+	sb.WriteString(fmt.Sprintf("Date: %s\n", order.OrderedAt.Format("2006-01-02 15:04:05")))
+	sb.WriteString("\nItems:\n")
+	sb.WriteString("-------------------------------\n")
+
+	for _, item := range order.Items {
+		sb.WriteString(fmt.Sprintf("%dx %s\n", item.Quantity, item.Name))
+		for _, mod := range item.Modifiers {
+			sb.WriteString(fmt.Sprintf("  + %s", mod.Name))
+			if mod.PriceAdjustment > 0 {
+				sb.WriteString(fmt.Sprintf(" (+$%.2f)", mod.PriceAdjustment))
+			}
+			sb.WriteString("\n")
+		}
+		if item.SpecialInstructions != nil && *item.SpecialInstructions != "" {
+			sb.WriteString(fmt.Sprintf("  * %s\n", *item.SpecialInstructions))
+		}
+		sb.WriteString(fmt.Sprintf("  $%.2f\n\n", item.Price*float64(item.Quantity)))
 	}
 
-	return receipt, nil
+	sb.WriteString("-------------------------------\n")
+	sb.WriteString(fmt.Sprintf("Total: $%.2f\n\n", order.Total))
+	sb.WriteString("===============================\n")
+	sb.WriteString("         Thank You!           \n")
+	sb.WriteString("===============================\n")
+
+	return sb.String(), nil
 }

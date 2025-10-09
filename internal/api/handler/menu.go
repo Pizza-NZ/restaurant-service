@@ -59,56 +59,44 @@ func (h *MenuHandler) broadcastMenuUpdate(updateType, id string) {
 // HandleMenuCategories handles requests from menu categories
 func (h *MenuHandler) HandleMenuCategories(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/menu/categories")
+	path := strings.TrimPrefix(r.URL.Path, "/api/menu/categories")
 	path = strings.TrimPrefix(path, "/")
 
 	// Handle different HTTP methods
 	switch r.Method {
 	case http.MethodGet:
-		// if path empty then listCategory(w, r)
 		if path == "" {
 			h.listCategories(w, r)
-		}
-		// else parse path as id
-		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
-		if err != nil {
-			api.BadRequest(w, "Invalid category ID")
 			return
 		}
-		// finally getCategory(w, r, id)
+		id, err := uuid.Parse(path)
+		if err != nil {
+			api.Error(w, http.StatusBadRequest, "Invalid category ID")
+			return
+		}
 		h.getCategory(w, r, id)
 	case http.MethodPut:
-		// parse path as id
 		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
 		if err != nil {
-			api.BadRequest(w, "Invalid category ID")
+			api.Error(w, http.StatusBadRequest, "Invalid category ID")
 			return
 		}
 		h.updateCategory(w, r, id)
 	case http.MethodPost:
-		// if path not empty then BadRequest
 		if path != "" {
-			api.BadRequest(w, "Invalid request path")
+			api.Error(w, http.StatusBadRequest, "Invalid request path")
 			return
 		}
-		// else createCategory(w, r)
 		h.createCategory(w, r)
 	case http.MethodDelete:
-		// parse path as id
 		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
 		if err != nil {
-			api.BadRequest(w, "Invalid category ID")
+			api.Error(w, http.StatusBadRequest, "Invalid category ID")
 			return
 		}
-		// finally deleteCategory(w, r, id)
 		h.deleteCategory(w, r, id)
 	default:
-		// Return MethodNotAllowed
-		api.MethodNotAllowed(w)
-		return
+		api.Error(w, http.StatusMethodNotAllowed, "Method Not Allowed")
 	}
 }
 
@@ -116,128 +104,119 @@ func (h *MenuHandler) HandleMenuCategories(w http.ResponseWriter, r *http.Reques
 func (h *MenuHandler) listCategories(w http.ResponseWriter, r *http.Request) {
 	categories, err := h.menuService.GetCategories(r.Context())
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to list categories")
 		return
 	}
 
-	respondJSON(w, categories)
+	api.JSON(w, http.StatusOK, categories)
 }
 
 // getCategory gets a menu category
 func (h *MenuHandler) getCategory(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	category, err := h.menuService.GetCategory(r.Context(), id)
 	if err != nil {
-		api.NotFound(w, err)
+		api.Error(w, http.StatusNotFound, "Category not found")
 		return
 	}
 
-	respondJSON(w, category)
+	api.JSON(w, http.StatusOK, category)
 }
 
 // createCategory creates a new menu category
 func (h *MenuHandler) createCategory(w http.ResponseWriter, r *http.Request) {
 	var req models.MenuCategoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body")
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	category, err := h.menuService.CreateCategory(r.Context(), req)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to create category")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("category.create", category.ID.String())
 
-	w.WriteHeader(http.StatusCreated)
-	respondJSON(w, category)
+	api.JSON(w, http.StatusCreated, category)
 }
 
 // updateCategory updates a menu category
 func (h *MenuHandler) updateCategory(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var req models.MenuCategoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body")
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	category, err := h.menuService.UpdateCategory(r.Context(), id, req)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to update category")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("category.update", category.ID.String())
 
-	respondJSON(w, category)
+	api.JSON(w, http.StatusOK, category)
 }
 
 // deleteCategory deletes a menu category
 func (h *MenuHandler) deleteCategory(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	err := h.menuService.DeleteCategory(r.Context(), id)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to delete category")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("category.delete", id.String())
 
-	w.WriteHeader(http.StatusNoContent)
-	respondJSON(w, nil)
+	api.JSON(w, http.StatusNoContent, nil)
 }
 
 // HandleMenuItems handles requests from menu items
 func (h *MenuHandler) HandleMenuItems(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/menu/items")
+	path := strings.TrimPrefix(r.URL.Path, "/api/menu/items")
 	path = strings.TrimPrefix(path, "/")
 
 	// Handle different HTTP methods
 	switch r.Method {
 	case http.MethodGet:
-		// if path empty then listItems(w, r)
 		if path == "" {
 			h.listItems(w, r)
-		}
-		// else parse path as id
-		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
-		if err != nil {
-			api.BadRequest(w, "Invalid item ID")
 			return
 		}
-		// finally getItem(w, r, id)
+		id, err := uuid.Parse(path)
+		if err != nil {
+			api.Error(w, http.StatusBadRequest, "Invalid item ID")
+			return
+		}
 		h.getItem(w, r, id)
 	case http.MethodPut:
-		// parse path as id
 		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
 		if err != nil {
-			api.BadRequest(w, "Invalid item ID")
+			api.Error(w, http.StatusBadRequest, "Invalid item ID")
 			return
 		}
 		h.updateItem(w, r, id)
 	case http.MethodPost:
-		// if path not empty then BadRequest
 		if path != "" {
-			api.BadRequest(w, "Invalid request path")
+			api.Error(w, http.StatusBadRequest, "Invalid request path")
 			return
 		}
 		h.createItem(w, r)
 	case http.MethodDelete:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			api.BadRequest(w, "Invalid item ID")
+			api.Error(w, http.StatusBadRequest, "Invalid item ID")
 			return
 		}
 		h.deleteItem(w, r, id)
 	default:
-		api.MethodNotAllowed(w)
-		return
+		api.Error(w, http.StatusMethodNotAllowed, "Method Not Allowed")
 	}
 }
 
@@ -249,7 +228,7 @@ func (h *MenuHandler) listItems(w http.ResponseWriter, r *http.Request) {
 	if categoryIDStr != "" {
 		id, err := uuid.Parse(categoryIDStr)
 		if err != nil {
-			api.BadRequest(w, "Invalid category ID")
+			api.Error(w, http.StatusBadRequest, "Invalid category ID")
 			return
 		}
 		category = &id
@@ -257,128 +236,119 @@ func (h *MenuHandler) listItems(w http.ResponseWriter, r *http.Request) {
 
 	items, err := h.menuService.GetItems(r.Context(), category)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to list items")
 		return
 	}
 
-	respondJSON(w, items)
+	api.JSON(w, http.StatusOK, items)
 }
 
 // getItem gets a menu item by ID
 func (h *MenuHandler) getItem(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	item, err := h.menuService.GetItem(r.Context(), id)
 	if err != nil {
-		api.NotFound(w, err)
+		api.Error(w, http.StatusNotFound, "Item not found")
 		return
 	}
 
-	respondJSON(w, item)
+	api.JSON(w, http.StatusOK, item)
 }
 
 // createItem creates a new menu item
 func (h *MenuHandler) createItem(w http.ResponseWriter, r *http.Request) {
 	var req models.MenuItemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body "+err.Error())
+		api.Error(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
 	item, err := h.menuService.CreateItem(r.Context(), req)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to create item")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("item.create", item.ID.String())
 
-	w.WriteHeader(http.StatusCreated)
-	respondJSON(w, item)
+	api.JSON(w, http.StatusCreated, item)
 }
 
 // updateItem updates a menu item
 func (h *MenuHandler) updateItem(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var req models.MenuItemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body")
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	item, err := h.menuService.UpdateItem(r.Context(), id, req)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to update item")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("item.update", item.ID.String())
 
-	respondJSON(w, item)
+	api.JSON(w, http.StatusOK, item)
 }
 
 // deleteItem deletes a menu item
 func (h *MenuHandler) deleteItem(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	err := h.menuService.DeleteItem(r.Context(), id)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to delete item")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("item.delete", id.String())
 
-	w.WriteHeader(http.StatusNoContent)
-	respondJSON(w, nil)
+	api.JSON(w, http.StatusNoContent, nil)
 }
 
 // HandleModifiers handles requests for modifiers
 func (h *MenuHandler) HandleModifiers(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path
-	path := strings.TrimPrefix(r.URL.Path, "/modifiers")
+	path := strings.TrimPrefix(r.URL.Path, "/api/modifiers")
 	path = strings.TrimPrefix(path, "/")
 
 	// Handle different HTTP methods
 	switch r.Method {
 	case http.MethodGet:
-		// if path empty then listModifiers(w, r)
 		if path == "" {
 			h.listModifiers(w, r)
-		}
-		// else parse path as id
-		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
-		if err != nil {
-			api.BadRequest(w, "Invalid modifier ID")
 			return
 		}
-		// finally getModifier(w, r, id)
+		id, err := uuid.Parse(path)
+		if err != nil {
+			api.Error(w, http.StatusBadRequest, "Invalid modifier ID")
+			return
+		}
 		h.getModifier(w, r, id)
 	case http.MethodPut:
-		// parse path as id
 		id, err := uuid.Parse(path)
-		// check if err then BadRequest if true
 		if err != nil {
-			api.BadRequest(w, "Invalid modifier ID")
+			api.Error(w, http.StatusBadRequest, "Invalid modifier ID")
 			return
 		}
 		h.updateModifier(w, r, id)
 	case http.MethodPost:
-		// if path not empty then BadRequest
 		if path != "" {
-			api.BadRequest(w, "Invalid request path")
+			api.Error(w, http.StatusBadRequest, "Invalid request path")
 			return
 		}
 		h.createModifier(w, r)
 	case http.MethodDelete:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			api.BadRequest(w, "Invalid modifier ID")
+			api.Error(w, http.StatusBadRequest, "Invalid modifier ID")
 			return
 		}
 		h.deleteModifier(w, r, id)
 	default:
-		api.MethodNotAllowed(w)
-		return
+		api.Error(w, http.StatusMethodNotAllowed, "Method Not Allowed")
 	}
 }
 
@@ -386,22 +356,22 @@ func (h *MenuHandler) HandleModifiers(w http.ResponseWriter, r *http.Request) {
 func (h *MenuHandler) listModifiers(w http.ResponseWriter, r *http.Request) {
 	modifiers, err := h.menuService.GetModifiers(r.Context())
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to list modifiers")
 		return
 	}
 
-	respondJSON(w, modifiers)
+	api.JSON(w, http.StatusOK, modifiers)
 }
 
 // getModifier gets a modifier by ID
 func (h *MenuHandler) getModifier(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	modifier, err := h.menuService.GetModifier(r.Context(), id)
 	if err != nil {
-		api.NotFound(w, err)
+		api.Error(w, http.StatusNotFound, "Modifier not found")
 		return
 	}
 
-	respondJSON(w, modifier)
+	api.JSON(w, http.StatusOK, modifier)
 }
 
 // createModifier creates a new modifier
@@ -413,21 +383,20 @@ func (h *MenuHandler) createModifier(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body")
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	modifier, err := h.menuService.CreateModifier(r.Context(), req.Name, req.IsMultiple, req.Options)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to create modifier")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("modifier.create", modifier.ID.String())
 
-	w.WriteHeader(http.StatusCreated)
-	respondJSON(w, modifier)
+	api.JSON(w, http.StatusCreated, modifier)
 }
 
 // updateModifier updates a modifier
@@ -439,33 +408,32 @@ func (h *MenuHandler) updateModifier(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "Invalid request body")
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	modifier, err := h.menuService.UpdateModifier(r.Context(), id, req.Name, req.IsMultiple, req.Options)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to update modifier")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("modifier.update", modifier.ID.String())
 
-	respondJSON(w, modifier)
+	api.JSON(w, http.StatusOK, modifier)
 }
 
 // deleteModifier deletes a modifier
 func (h *MenuHandler) deleteModifier(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	err := h.menuService.DeleteModifier(r.Context(), id)
 	if err != nil {
-		api.InternalServerError(w, err)
+		api.Error(w, http.StatusInternalServerError, "Failed to delete modifier")
 		return
 	}
 
 	// Broadcast menu update to connected clients
 	h.broadcastMenuUpdate("modifier.delete", id.String())
 
-	w.WriteHeader(http.StatusNoContent)
-	respondJSON(w, nil)
+	api.JSON(w, http.StatusNoContent, nil)
 }

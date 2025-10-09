@@ -1,13 +1,15 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 )
 
 // Logger is a middleware that logs HTTP requests
 func Logger(next http.Handler) http.Handler {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -22,7 +24,13 @@ func Logger(next http.Handler) http.Handler {
 
 		// Log the request
 		duration := time.Since(start)
-		log.Printf("%s %s %s %d %s", r.RemoteAddr, r.Method, r.URL.Path, lw.statusCode, duration)
+		logger.Info("http request",
+			"remote_addr", r.RemoteAddr,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status_code", lw.statusCode,
+			"duration", duration,
+		)
 	})
 }
 

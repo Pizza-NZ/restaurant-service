@@ -2,7 +2,8 @@ package websockets
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,6 +18,8 @@ const (
 
 	maxMessageSize = 1024 * 1024 // 1MB
 )
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 type MessageType string
 
@@ -80,14 +83,19 @@ func (c *Client) SetStationID(stationID string) {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+				logger.Error("Failed to close connection", "error", err)
+			}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		logger.Error("Failed to set read deadline", "error", err)
+	}
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			logger.Error("Failed to set read deadline", "error", err)
+		}
 		return nil
 	})
 
@@ -95,7 +103,7 @@ func (c *Client) readPump() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				logger.Error("websocket error", "error", err)
 			}
 			break
 		}
@@ -103,7 +111,7 @@ func (c *Client) readPump() {
 		// Process
 		var wsMessage Message
 		if err := json.Unmarshal(message, &wsMessage); err != nil {
-			log.Printf("Error unmarshaling message: %v", err)
+			logger.Error("Error unmarshaling message", "error", err)
 			continue
 		}
 
@@ -114,7 +122,7 @@ func (c *Client) readPump() {
 				StationID string `json:"station_id"`
 			}
 			if err := json.Unmarshal(wsMessage.Data, &registerData); err != nil {
-				log.Printf("Error unmarshaling register data: %v", err)
+				logger.Error("Error unmarshaling register data", "error", err)
 				continue
 			}
 			c.SetStationID(registerData.StationID)
@@ -127,7 +135,7 @@ func (c *Client) readPump() {
 				Error     string `json:"error,omitempty"`
 			}
 			if err := json.Unmarshal(wsMessage.Data, &statusData); err != nil {
-				log.Printf("Error unmarshaling printer status: %v", err)
+				logger.Error("Error unmarshaling printer status", "error", err)
 				continue
 			}
 			statusMsg, _ := json.Marshal(wsMessage)
@@ -149,15 +157,21 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			logger.Error("Failed to close connection", "error", err)
+		}
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				logger.Error("Failed to set write deadline", "error", err)
+			}
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					logger.Error("Failed to write close message", "error", err)
+				}
 				return
 			}
 
@@ -165,12 +179,18 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				logger.Error("Failed to write message", "error", err)
+			}
 
 			n := len(c.send)
 			for range n {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.send)
+				if _, err := w.Write([]byte{'\n'}); err != nil {
+					logger.Error("Failed to write newline", "error", err)
+				}
+				if _, err := w.Write(<-c.send); err != nil {
+					logger.Error("Failed to write message from send channel", "error", err)
+				}
 			}
 
 			if err := w.Close(); err != nil {
@@ -178,7 +198,9 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				logger.Error("Failed to set write deadline", "error", err)
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

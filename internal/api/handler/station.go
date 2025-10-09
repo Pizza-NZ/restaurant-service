@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/pizza-nz/restaurant-service/internal/api"
 	"github.com/pizza-nz/restaurant-service/internal/models"
 	"github.com/pizza-nz/restaurant-service/internal/service"
 	"github.com/pizza-nz/restaurant-service/internal/websockets"
@@ -39,7 +40,7 @@ func (h *StationHandler) HandleStations(w http.ResponseWriter, r *http.Request) 
 		} else {
 			id, err := uuid.Parse(path)
 			if err != nil {
-				http.Error(w, "Invalid station ID", http.StatusBadRequest)
+				api.Error(w, http.StatusBadRequest, "Invalid station ID")
 				return
 			}
 			h.getStation(w, r, id)
@@ -47,7 +48,7 @@ func (h *StationHandler) HandleStations(w http.ResponseWriter, r *http.Request) 
 
 	case http.MethodPost:
 		if path != "" {
-			http.Error(w, "Invalid path", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid path")
 			return
 		}
 		h.createStation(w, r)
@@ -55,7 +56,7 @@ func (h *StationHandler) HandleStations(w http.ResponseWriter, r *http.Request) 
 	case http.MethodPut:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			http.Error(w, "Invalid station ID", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid station ID")
 			return
 		}
 		h.updateStation(w, r, id)
@@ -63,13 +64,13 @@ func (h *StationHandler) HandleStations(w http.ResponseWriter, r *http.Request) 
 	case http.MethodDelete:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			http.Error(w, "Invalid station ID", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid station ID")
 			return
 		}
 		h.deleteStation(w, r, id)
 
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		api.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
@@ -77,7 +78,7 @@ func (h *StationHandler) HandleStations(w http.ResponseWriter, r *http.Request) 
 func (h *StationHandler) listStations(w http.ResponseWriter, r *http.Request) {
 	stations, err := h.stationService.GetStations(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -88,7 +89,7 @@ func (h *StationHandler) listStations(w http.ResponseWriter, r *http.Request) {
 func (h *StationHandler) getStation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	station, err := h.stationService.GetStation(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		api.Error(w, http.StatusNotFound, err.Error())
 		return
 	}
 
@@ -99,13 +100,13 @@ func (h *StationHandler) getStation(w http.ResponseWriter, r *http.Request, id u
 func (h *StationHandler) createStation(w http.ResponseWriter, r *http.Request) {
 	var req models.StationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
 	station, err := h.stationService.CreateStation(r.Context(), req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -120,13 +121,13 @@ func (h *StationHandler) createStation(w http.ResponseWriter, r *http.Request) {
 func (h *StationHandler) updateStation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var req models.StationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	station, err := h.stationService.UpdateStation(r.Context(), id, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -140,7 +141,7 @@ func (h *StationHandler) updateStation(w http.ResponseWriter, r *http.Request, i
 func (h *StationHandler) deleteStation(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	err := h.stationService.DeleteStation(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -160,13 +161,13 @@ func (h *StationHandler) HandleRoutingRules(w http.ResponseWriter, r *http.Reque
 	switch r.Method {
 	case http.MethodGet:
 		if path == "" {
-			http.Error(w, "Menu item ID required", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Menu item ID required")
 			return
 		}
 
 		menuItemID, err := uuid.Parse(path)
 		if err != nil {
-			http.Error(w, "Invalid menu item ID", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid menu item ID")
 			return
 		}
 
@@ -175,14 +176,14 @@ func (h *StationHandler) HandleRoutingRules(w http.ResponseWriter, r *http.Reque
 	case http.MethodPut:
 		id, err := uuid.Parse(path)
 		if err != nil {
-			http.Error(w, "Invalid routing rule ID", http.StatusBadRequest)
+			api.Error(w, http.StatusBadRequest, "Invalid routing rule ID")
 			return
 		}
 
 		h.updateRoutingRule(w, r, id)
 
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		api.Error(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
@@ -190,7 +191,7 @@ func (h *StationHandler) HandleRoutingRules(w http.ResponseWriter, r *http.Reque
 func (h *StationHandler) getRoutingRules(w http.ResponseWriter, r *http.Request, menuItemID uuid.UUID) {
 	rules, err := h.stationService.GetRoutingRules(r.Context(), menuItemID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -201,13 +202,13 @@ func (h *StationHandler) getRoutingRules(w http.ResponseWriter, r *http.Request,
 func (h *StationHandler) updateRoutingRule(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var req models.RoutingRuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		api.Error(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	rule, err := h.stationService.UpdateRoutingRule(r.Context(), id, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		api.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

@@ -12,8 +12,10 @@ services:
       - DB_PASSWORD=postgres # Insert this with your .env file
       - DB_NAME=restaurant # Insert this with your .env file
       - SERVER_PORT=8080
+      - NATS_URL=nats://nats:4222
     depends_on:
       - postgres
+      - nats
     volumes:
       - ./configs:/app/configs
 
@@ -27,6 +29,27 @@ services:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+
+  printer_service:
+    build:
+      context: .
+      dockerfile: cmd/printer-service/Dockerfile
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=restaurant
+      - NATS_URL=nats://nats:4222
+    depends_on:
+      - nats
+      - postgres
+
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"
+      - "8222:8222"
 
 volumes:
   postgres-data:
