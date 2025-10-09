@@ -1,0 +1,26 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch:
+
+exporters:
+  awsxray:
+    region: "ap-southeast-2"
+  awsemf:
+    region: "ap-southeast-2"
+    namespace: "FileUploadService"
+  awscloudwatch:
+    region: "ap-southeast-2"
+    log_group_name: "/ecs/${var.app_name}-app"
+    log_stream_name: "otel-logs-{container_name}"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [btach]
+      exporters: [awsxray, awsemf, awscloudwatch]
